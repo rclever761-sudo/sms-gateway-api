@@ -16,7 +16,7 @@ if (preg_match('/REF-\d+/i', $message, $matches)) {
     $reference = strtoupper($matches[0]);
 
     $host = 'mysql-ddc4692-rclever761-3f21.aivencloud.com';
-    $port = '25985';
+    $port = '23985';
     $db   = 'defaultdb';
     $user = 'avnadmin';
     $pass = 'AVNS_Q1eviPJ1owGEHyV5PCy';
