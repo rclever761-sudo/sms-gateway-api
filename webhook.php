@@ -12,24 +12,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 try {
     require_once 'db.php';
 
-    // Get raw input body
+    // Capture input across GET, POST, or JSON raw body
     $rawInput = file_get_contents('php://input');
     $jsonData = json_decode($rawInput, true);
 
-    // Extract sender & message across common gateway keys
-    $sender = $_POST['sender'] ?? $_POST['from'] ?? $_POST['phone'] ?? $jsonData['sender'] ?? $jsonData['from'] ?? $jsonData['phone'] ?? 'unknown';
-    $message = $_POST['message'] ?? $_POST['text'] ?? $_POST['body'] ?? $jsonData['message'] ?? $jsonData['text'] ?? $jsonData['body'] ?? $rawInput;
+    $sender = $_REQUEST['sender'] ?? $_REQUEST['from'] ?? $_REQUEST['phone'] ?? $jsonData['sender'] ?? $jsonData['from'] ?? $jsonData['phone'] ?? 'unknown';
+    $message = $_REQUEST['message'] ?? $_REQUEST['text'] ?? $_REQUEST['body'] ?? $jsonData['message'] ?? $jsonData['text'] ?? $jsonData['body'] ?? $rawInput;
 
     if (empty($message)) {
         echo json_encode(["status" => "error", "message" => "Empty body"]);
         exit();
     }
 
-    // Always log raw incoming message to database
+    // Always log incoming payload
     $stmt = $pdo->prepare("INSERT INTO sms_logs (sender, message) VALUES (?, ?)");
     $stmt->execute([$sender, $message]);
 
-    // Extract code (matches REF-61581 or REF61581)
+    // Extract reference code
     if (preg_match('/REF-?\s*([A-Za-z0-9]+)/i', $message, $matches)) {
         $rawNum = trim($matches[1]);
         $ref_code = "REF-" . $rawNum;
@@ -40,7 +39,7 @@ try {
             $amount = str_replace(',', '', $amtMatches[1]);
         }
 
-        // Insert hyphenated version
+        // Save hyphenated code
         $stmt1 = $pdo->prepare("
             INSERT INTO transactions (ref_code, amount, status, deposit_status) 
             VALUES (?, ?, 'COMPLETED', 'COMPLETED')
@@ -48,7 +47,7 @@ try {
         ");
         $stmt1->execute([$ref_code, $amount]);
 
-        // Insert clean non-hyphenated version
+        // Save unhyphenated code
         $stmt2 = $pdo->prepare("
             INSERT INTO transactions (ref_code, amount, status, deposit_status) 
             VALUES (?, ?, 'COMPLETED', 'COMPLETED')
