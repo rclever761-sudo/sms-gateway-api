@@ -3,12 +3,16 @@ header("Content-Type: application/json");
 header("Access-Control-Allow-Origin: *");
 
 $rawInput = file_get_contents('php://input');
-$data = json_decode($rawInput, true);
+error_log("--> RAW INPUT RECEIVED: " . $rawInput);
 
+$data = json_decode($rawInput, true);
 $message = $data['message'] ?? $data['sms_body'] ?? $data['text'] ?? $_POST['message'] ?? $_POST['text'] ?? $rawInput ?? '';
+
+error_log("--> PARSED MESSAGE: " . $message);
 
 if (preg_match('/REF-\d+/i', $message, $matches)) {
     $reference = strtoupper($matches[0]);
+    error_log("--> EXTRACTED REFERENCE: " . $reference);
 
     $host = 'mysql-ddc4692-rclever761-3f21.aivencloud.com';
     $port = '23985';
@@ -24,7 +28,6 @@ if (preg_match('/REF-\d+/i', $message, $matches)) {
             PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => false
         ]);
 
-        // Create table if it doesn't exist
         $pdo->exec("CREATE TABLE IF NOT EXISTS deposits (
             id INT AUTO_INCREMENT PRIMARY KEY,
             reference VARCHAR(255) NOT NULL UNIQUE,
@@ -32,7 +35,6 @@ if (preg_match('/REF-\d+/i', $message, $matches)) {
             updated_at DATETIME NULL
         )");
 
-        // Automatically insert the reference as PENDING if it's new
         $checkStmt = $pdo->prepare("SELECT status FROM deposits WHERE reference = ?");
         $checkStmt->execute([$reference]);
         
@@ -41,9 +43,10 @@ if (preg_match('/REF-\d+/i', $message, $matches)) {
             $insertStmt->execute([$reference]);
         }
 
-        // Update the reference from PENDING to SUCCESS
         $stmt = $pdo->prepare("UPDATE deposits SET status = 'SUCCESS', updated_at = NOW() WHERE reference = ?");
         $stmt->execute([$reference]);
+
+        error_log("--> SUCCESS: Database updated successfully for " . $reference);
 
         echo json_encode([
             'status' => 'success',
@@ -52,14 +55,10 @@ if (preg_match('/REF-\d+/i', $message, $matches)) {
             'rows_updated' => $stmt->rowCount()
         ]);
     } catch (PDOException $e) {
-        echo json_encode([
-            'status' => 'error',
-            'message' => $e->getMessage()
-        ]);
+        error_log("--> DATABASE ERROR: " . $e->getMessage());
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
     }
 } else {
-    echo json_encode([
-        'status' => 'error',
-        'message' => 'No matching reference code found in SMS'
-    ]);
+    error_log("--> MATCH FAILED: No REF-xxxx code found in payload.");
+    echo json_encode(['status' => 'error', 'message' => 'No matching reference code found in SMS']);
 }
