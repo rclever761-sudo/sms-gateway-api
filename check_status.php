@@ -1,41 +1,57 @@
 <?php
-header("Content-Type: application/json");
 header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type");
+header("Content-Type: application/json; charset=UTF-8");
 
-$reference = isset($_GET['ref']) ? strtoupper(trim($_GET['ref'])) : '';
-
-if (empty($reference)) {
-    echo json_encode(['status' => 'error', 'message' => 'Reference code required']);
-    exit;
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit();
 }
-
-$host = 'mysql-ddc4692-rclever761-3f21.h.aivencloud.com';
-$port = '23985';
-$db   = 'defaultdb';
-$user = 'avnadmin';
-$pass = 'AVNS_Q1eviPJ1owGEHyV5PCy';
 
 try {
-    $dsn = "mysql:host=$host;port=$port;dbname=$db;charset=utf8mb4";
-    $pdo = new PDO($dsn, $user, $pass, [
-        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::MYSQL_ATTR_SSL_CA => true,
-        PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => false
-    ]);
+    require_once 'db.php';
 
-    $stmt = $pdo->prepare("SELECT status, updated_at FROM deposits WHERE reference = ?");
-    $stmt->execute([$reference]);
-    $result = $stmt->fetch(PDO::FETCH_ASSOC);
+    $code = $_GET['code'] ?? $_GET['ref'] ?? $_GET['reference'] ?? '';
 
-    if ($result) {
+    if (empty($code)) {
+        echo json_encode(["status" => "error", "message" => "No code provided"]);
+        exit();
+    }
+
+    $rawNum = preg_replace('/[^0-9]/', '', $code);
+    $hyphenated = "REF-" . $rawNum;
+    $clean = "REF" . $rawNum;
+
+    // Check database for either format
+    $stmt = $pdo->prepare("
+        SELECT * FROM transactions 
+        WHERE (ref_code = ? OR ref_code = ?) 
+          AND (status = 'COMPLETED' OR deposit_status = 'COMPLETED')
+        LIMIT 1
+    ");
+    $stmt->execute([$hyphenated, $clean]);
+    $transaction = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if ($transaction) {
         echo json_encode([
-            'status' => 'found',
-            'deposit_status' => $result['status'],
-            'updated_at' => $result['updated_at']
+            "status" => "success",
+            "deposit_status" => "COMPLETED",
+            "payment_status" => "COMPLETED",
+            "verified" => true,
+            "message" => "Payment confirmed",
+            "data" => $transaction
         ]);
     } else {
-        echo json_encode(['status' => 'not_found', 'deposit_status' => 'PENDING']);
+        echo json_encode([
+            "status" => "pending",
+            "deposit_status" => "PENDING",
+            "verified" => false,
+            "message" => "Payment not detected yet"
+        ]);
     }
-} catch (PDOException $e) {
-    echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+
+} catch (Exception $e) {
+    echo json_encode(["status" => "error", "message" => $e->getMessage()]);
 }
+?>
