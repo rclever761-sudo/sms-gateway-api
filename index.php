@@ -1,26 +1,32 @@
 <?php
-// Prevent PHP warnings/notices from corrupting JSON output
-error_reporting(0);
-ini_set('display_errors', 0);
-
-// Flush output buffer
+// Prevent PHP output buffering issues
 if (ob_get_level()) ob_end_clean();
 
-// Force CORS Headers
+// Set CORS and JSON response headers immediately
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
 header("Content-Type: application/json; charset=UTF-8");
 
+// Handle preflight requests
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit(0);
 }
 
+// Wrap EVERYTHING inside try-catch to stop HTTP 500 errors
 try {
+    if (!file_exists('db.php')) {
+        throw new Exception("db.php file is missing from the server.");
+    }
+
     require_once 'db.php';
 
-    // Parse incoming JSON body or POST form data
+    if (!isset($pdo)) {
+        throw new Exception("Database connection variable \$pdo is not set in db.php.");
+    }
+
+    // Read incoming parameters
     $inputJSON = json_decode(file_get_contents('php://input'), true);
     $ref = $_POST['ref'] ?? $_GET['ref'] ?? $inputJSON['ref'] ?? null;
 
@@ -47,7 +53,7 @@ try {
         exit(0);
     }
 
-    // SMS Gateway Webhook handling
+    // Handle incoming SMS Webhook
     $sms_text = $_POST['message'] ?? $inputJSON['message'] ?? '';
 
     if (!empty($sms_text)) {
@@ -66,14 +72,15 @@ try {
         }
     }
 
-    echo json_encode(["status" => "FAILED", "message" => "No reference or message received"]);
+    echo json_encode(["status" => "FAILED", "message" => "No reference code provided"]);
     exit(0);
 
-} catch (Exception $e) {
-    // Return 200 with the exact error message so JS can display it
+} catch (Throwable $e) {
+    // Send 200 status so the front-end receives the error description instead of dying on HTTP 500
+    http_response_code(200);
     echo json_encode([
         "status" => "error", 
-        "deposit_status" => "ERROR",
+        "deposit_status" => "ERROR", 
         "message" => $e->getMessage()
     ]);
     exit(0);
