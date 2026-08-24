@@ -27,7 +27,24 @@ if (preg_match('/REF-\d+/i', $message, $matches)) {
             PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => false
         ]);
 
-        $stmt = $pdo->prepare("UPDATE deposits SET status = 'SUCCESS', updated_at = NOW() WHERE reference = ? AND status = 'PENDING'");
+        // Auto-create the table in Aiven if it doesn't exist yet
+        $pdo->exec("CREATE TABLE IF NOT EXISTS deposits (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            reference VARCHAR(255) NOT NULL,
+            status VARCHAR(50) DEFAULT 'PENDING',
+            updated_at DATETIME NULL
+        )");
+
+        // Insert reference if it does not exist yet
+        $checkStmt = $pdo->prepare("SELECT id FROM deposits WHERE reference = ?");
+        $checkStmt->execute([$reference]);
+        if ($checkStmt->rowCount() === 0) {
+            $insertStmt = $pdo->prepare("INSERT INTO deposits (reference, status) VALUES (?, 'PENDING')");
+            $insertStmt->execute([$reference]);
+        }
+
+        // Update deposit status to SUCCESS
+        $stmt = $pdo->prepare("UPDATE deposits SET status = 'SUCCESS', updated_at = NOW() WHERE reference = ?");
         $stmt->execute([$reference]);
 
         echo json_encode([
