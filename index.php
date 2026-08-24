@@ -1,28 +1,31 @@
 <?php
-// Clear output buffer to prevent stray characters
-ob_clean();
+// Clear any existing buffers
+if (ob_get_level()) ob_end_clean();
 
-// Allow request from any origin (Blogger)
+// Force CORS Headers on EVERY response
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With");
+header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
 header("Content-Type: application/json; charset=UTF-8");
 
-// Handle browser preflight OPTIONS request
+// Handle preflight OPTIONS request instantly
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit(0);
 }
 
-require_once 'db.php';
+try {
+    require_once 'db.php';
 
-// Catch reference code from either GET or POST
-$ref = $_GET['ref'] ?? $_POST['ref'] ?? null;
+    // Parse incoming JSON body if present
+    $inputJSON = json_decode(file_get_contents('php://input'), true);
 
-if ($ref) {
-    $ref = strtoupper(trim($ref));
-    
-    try {
+    // Retrieve reference code from GET, POST, or JSON body
+    $ref = $_GET['ref'] ?? $_POST['ref'] ?? $inputJSON['ref'] ?? null;
+
+    if ($ref) {
+        $ref = strtoupper(trim($ref));
+        
         $stmt = $pdo->prepare("SELECT deposit_status FROM deposits WHERE ref_code = ?");
         $stmt->execute([$ref]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -40,22 +43,16 @@ if ($ref) {
                 "message" => "Payment not detected yet"
             ]);
         }
-    } catch (PDOException $e) {
-        echo json_encode(["status" => "error", "message" => $e->getMessage()]);
+        exit(0);
     }
-    exit(0);
-}
 
-// Android SMS Gateway Webhook Handler
-$inputData = file_get_contents('php://input');
-$data = json_decode($inputData, true);
-$sms_text = $data['message'] ?? $_POST['message'] ?? $inputData ?? '';
+    // Handle SMS Gateway Webhook
+    $sms_text = $inputJSON['message'] ?? $_POST['message'] ?? '';
 
-if (!empty($sms_text)) {
-    if (preg_match('/Reason:\s*(REF-\d+)/i', $sms_text, $matches)) {
-        $extracted_ref = strtoupper(trim($matches[1]));
+    if (!empty($sms_text)) {
+        if (preg_match('/Reason:\s*(REF-\d+)/i', $sms_text, $matches)) {
+            $extracted_ref = strtoupper(trim($matches[1]));
 
-        try {
             $stmt = $pdo->prepare("
                 INSERT INTO deposits (ref_code, deposit_status) 
                 VALUES (?, 'SUCCESS') 
@@ -65,13 +62,15 @@ if (!empty($sms_text)) {
 
             echo json_encode(["status" => "SUCCESS", "ref" => $extracted_ref]);
             exit(0);
-        } catch (PDOException $e) {
-            echo json_encode(["status" => "ERROR", "message" => $e->getMessage()]);
-            exit(0);
         }
     }
-}
 
-echo json_encode(["status" => "FAILED", "message" => "No valid reference found"]);
-exit(0);
+    echo json_encode(["status" => "FAILED", "message" => "No reference or message received"]);
+    exit(0);
+
+} catch (Exception $e) {
+    http_response_code(200); // Return 200 so browser reads JSON error instead of throwing network error
+    echo json_encode(["status" => "error", "message" => $e->getMessage()]);
+    exit(0);
+}
 ?>
