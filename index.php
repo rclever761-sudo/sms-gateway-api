@@ -14,7 +14,7 @@ if (preg_match('/REF-\d+/i', $message, $matches)) {
     $reference = strtoupper($matches[0]);
     error_log("--> EXTRACTED REFERENCE: " . $reference);
 
-    // Exact Host, Port, and Credentials from your Aiven Dashboard
+    // EXACT AIVEN HOSTNAME WITH .h. INCLUDED
     $host = 'mysql-ddc4692-rclever761-3f21.h.aivencloud.com';
     $port = '23985';
     $db   = 'defaultdb';
