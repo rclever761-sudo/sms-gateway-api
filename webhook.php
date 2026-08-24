@@ -67,6 +67,3 @@ try {
     echo json_encode(["status" => "ignored", "message" => "SMS logged but no REF code detected."]);
 
 } catch (Exception $e) {
-    echo json_encode(["status" => "error", "message" => "Webhook Error: " . $e->getMessage()]);
-}
-?>
