@@ -12,18 +12,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 try {
     require_once 'db.php';
 
-    $code = $_GET['code'] ?? $_GET['ref'] ?? $_GET['reference'] ?? '';
+    // Read payload from POST or GET
+    $rawInput = file_get_contents('php://input');
+    $jsonData = json_decode($rawInput, true);
 
-    if (empty($code)) {
-        echo json_encode(["status" => "error", "message" => "No code provided"]);
+    $code = $_REQUEST['code'] ?? $_REQUEST['ref'] ?? $_REQUEST['reference'] ?? $jsonData['code'] ?? $jsonData['ref'] ?? '';
+
+    // If debug view is requested
+    if (isset($_GET['action']) && $_GET['action'] === 'debug_logs') {
+        $logs = $pdo->query("SELECT * FROM sms_logs ORDER BY id DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
+        $txs = $pdo->query("SELECT * FROM transactions ORDER BY id DESC LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode(["status" => "success", "sms_logs" => $logs, "transactions" => $txs]);
         exit();
     }
 
+    if (empty($code)) {
+        echo json_encode(["status" => "error", "message" => "No reference code provided"]);
+        exit();
+    }
+
+    // Clean digits and format variations
     $rawNum = preg_replace('/[^0-9]/', '', $code);
     $hyphenated = "REF-" . $rawNum;
     $clean = "REF" . $rawNum;
 
-    // Check database for either format
+    // Search database for completed status
     $stmt = $pdo->prepare("
         SELECT * FROM transactions 
         WHERE (ref_code = ? OR ref_code = ?) 
@@ -39,8 +52,7 @@ try {
             "deposit_status" => "COMPLETED",
             "payment_status" => "COMPLETED",
             "verified" => true,
-            "message" => "Payment confirmed",
-            "data" => $transaction
+            "message" => "Deposit confirmed!"
         ]);
     } else {
         echo json_encode([
