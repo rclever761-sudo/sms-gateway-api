@@ -2,7 +2,7 @@
 $host = "mysql-ddc4692-rclever761-3f21.aivencloud.com";
 $dbname = "defaultdb";
 $username = "avnadmin";
-$password = "YOUR_AIVEN_PASSWORD"; // Paste your copied password here
+$password = "AVNS_Q1eviPJ1owGEHyV5PCy"; // Paste your copied password here
 $port = "23985";
 
 try {
