@@ -1,88 +1,77 @@
 <?php
-// Prevent PHP output buffering issues
-if (ob_get_level()) ob_end_clean();
-
-// Set CORS and JSON response headers immediately
 header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
+header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type");
 header("Content-Type: application/json; charset=UTF-8");
 
-// Handle preflight requests
+// Handle CORS preflight request
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
-    exit(0);
+    exit();
 }
 
-// Wrap EVERYTHING inside try-catch to stop HTTP 500 errors
 try {
     if (!file_exists('db.php')) {
         throw new Exception("db.php file is missing from the server.");
     }
-
     require_once 'db.php';
 
-    if (!isset($pdo)) {
-        throw new Exception("Database connection variable \$pdo is not set in db.php.");
+    // 1. Ensure transactions table exists
+    $pdo->exec("CREATE TABLE IF NOT EXISTS transactions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        ref_code VARCHAR(50) NOT NULL UNIQUE,
+        amount DECIMAL(10,2) NOT NULL,
+        status VARCHAR(20) DEFAULT 'PENDING',
+        deposit_status VARCHAR(20) DEFAULT 'PENDING',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+
+    // 2. Automatically add deposit_status column if missing
+    try {
+        $pdo->exec("ALTER TABLE transactions ADD COLUMN deposit_status VARCHAR(20) DEFAULT 'PENDING'");
+    } catch (PDOException $e) {
+        // Ignored if column already exists
     }
 
-    // Read incoming parameters
-    $inputJSON = json_decode(file_get_contents('php://input'), true);
-    $ref = $_POST['ref'] ?? $_GET['ref'] ?? $inputJSON['ref'] ?? null;
+    // 3. Automatically add status column if missing
+    try {
+        $pdo->exec("ALTER TABLE transactions ADD COLUMN status VARCHAR(20) DEFAULT 'PENDING'");
+    } catch (PDOException $e) {
+        // Ignored if column already exists
+    }
 
-    if ($ref) {
-        $ref = strtoupper(trim($ref));
-        
-        $stmt = $pdo->prepare("SELECT deposit_status FROM deposits WHERE ref_code = ?");
-        $stmt->execute([$ref]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
-        if ($row && strtoupper($row['deposit_status']) === 'SUCCESS') {
-            echo json_encode([
-                "status" => "found", 
-                "deposit_status" => "SUCCESS", 
-                "message" => "Payment verified successfully"
-            ]);
+    // Handle deposit status check from Blogger frontend
+    if ($action === 'check_status' || isset($_POST['ref_code']) || isset($_GET['ref_code'])) {
+        $ref_code = $_POST['ref_code'] ?? $_GET['ref_code'] ?? '';
+
+        if (empty($ref_code)) {
+            echo json_encode(["status" => "error", "message" => "Missing reference code."]);
+            exit();
+        }
+
+        $stmt = $pdo->prepare("SELECT * FROM transactions WHERE ref_code = ?");
+        $stmt->execute([$ref_code]);
+        $txn = $stmt->fetch();
+
+        if ($txn) {
+            $status = $txn['deposit_status'] ?? $txn['status'] ?? 'PENDING';
+            if ($status === 'COMPLETED' || $status === 'SUCCESS') {
+                echo json_encode(["status" => "success", "message" => "✅ Deposit Confirmed!"]);
+            } else {
+                echo json_encode(["status" => "pending", "message" => "⏳ Payment not detected yet. Send money with reference code and try again."]);
+            }
         } else {
-            echo json_encode([
-                "status" => "pending", 
-                "deposit_status" => "PENDING", 
-                "message" => "Payment not detected yet"
-            ]);
+            echo json_encode(["status" => "pending", "message" => "⏳ Payment not detected yet. Send money with reference code and try again."]);
         }
-        exit(0);
+        exit();
     }
 
-    // Handle incoming SMS Webhook
-    $sms_text = $_POST['message'] ?? $inputJSON['message'] ?? '';
+    // Default API active status message
+    echo json_encode(["status" => "online", "message" => "SMS Gateway API is active."]);
 
-    if (!empty($sms_text)) {
-        if (preg_match('/Reason:\s*(REF-\d+)/i', $sms_text, $matches)) {
-            $extracted_ref = strtoupper(trim($matches[1]));
-
-            $stmt = $pdo->prepare("
-                INSERT INTO deposits (ref_code, deposit_status) 
-                VALUES (?, 'SUCCESS') 
-                ON DUPLICATE KEY UPDATE deposit_status = 'SUCCESS'
-            ");
-            $stmt->execute([$extracted_ref]);
-
-            echo json_encode(["status" => "SUCCESS", "ref" => $extracted_ref]);
-            exit(0);
-        }
-    }
-
-    echo json_encode(["status" => "FAILED", "message" => "No reference code provided"]);
-    exit(0);
-
-} catch (Throwable $e) {
-    // Send 200 status so the front-end receives the error description instead of dying on HTTP 500
-    http_response_code(200);
-    echo json_encode([
-        "status" => "error", 
-        "deposit_status" => "ERROR", 
-        "message" => $e->getMessage()
-    ]);
-    exit(0);
+} catch (Exception $e) {
+    echo json_encode(["status" => "error", "message" => "Server/DB Error: " . $e->getMessage()]);
 }
 ?>
