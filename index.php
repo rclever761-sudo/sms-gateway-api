@@ -1,57 +1,38 @@
 <?php
-header("Content-Type: application/json");
-header("Access-Control-Allow-Origin: *");
+// Set response headers
+header('Content-Type: application/json');
 
-$rawInput = file_get_contents('php://input');
-error_log("--> RAW INPUT: " . $rawInput);
+// Include database connection
+require_once 'db.php';
 
-$data = json_decode($rawInput, true);
-$message = $data['message'] ?? $data['sms_body'] ?? $data['text'] ?? $_POST['message'] ?? $_POST['text'] ?? $rawInput ?? '';
+// Get incoming POST payload from SMS Forwarder
+$inputData = file_get_contents('php://input');
+$data = json_decode($inputData, true);
 
-if (preg_match('/REF-\d+/i', $message, $matches)) {
-    $reference = strtoupper($matches[0]);
+// Extract SMS text (supports JSON payload or standard POST parameter)
+$sms_text = $data['message'] ?? $_POST['message'] ?? '';
 
-    $host = 'mysql-ddc4692-rclever761-3f21.h.aivencloud.com';
-    $port = '23985';
-    $db   = 'defaultdb';
-    $user = 'avnadmin';
-    $pass = 'AVNS_Q1eviPJ1owGEHyV5PCy';
+if (!empty($sms_text)) {
+    // REGEX: Matches "Reason:REF-34027" or "Reason: REF-34027"
+    if (preg_match('/Reason:\s*(REF-\d+)/i', $sms_text, $matches)) {
+        $extracted_ref = strtoupper(trim($matches[1]));
 
-    try {
-        $dsn = "mysql:host=$host;port=$port;dbname=$db;charset=utf8mb4";
-        $pdo = new PDO($dsn, $user, $pass, [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::MYSQL_ATTR_SSL_CA => true,
-            PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => false
-        ]);
+        try {
+            // Update deposit status to SUCCESS in database
+            $stmt = $pdo->prepare("UPDATE deposits SET deposit_status = 'SUCCESS' WHERE ref_code = ?");
+            $stmt->execute([$extracted_ref]);
 
-        $pdo->exec("CREATE TABLE IF NOT EXISTS deposits (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            reference VARCHAR(255) NOT NULL UNIQUE,
-            phone VARCHAR(50) NULL,
-            status VARCHAR(50) DEFAULT 'PENDING',
-            updated_at DATETIME NULL
-        )");
-
-        $checkStmt = $pdo->prepare("SELECT status FROM deposits WHERE reference = ?");
-        $checkStmt->execute([$reference]);
-        
-        if ($checkStmt->rowCount() === 0) {
-            $insertStmt = $pdo->prepare("INSERT INTO deposits (reference, status) VALUES (?, 'PENDING')");
-            $insertStmt->execute([$reference]);
+            if ($stmt->rowCount() > 0) {
+                echo json_encode(["status" => "success", "message" => "Deposit marked SUCCESS", "ref" => $extracted_ref]);
+            } else {
+                echo json_encode(["status" => "not_found", "message" => "Reference code not in database", "ref" => $extracted_ref]);
+            }
+        } catch (PDOException $e) {
+            echo json_encode(["status" => "error", "message" => $e->getMessage()]);
         }
-
-        $stmt = $pdo->prepare("UPDATE deposits SET status = 'SUCCESS', updated_at = NOW() WHERE reference = ?");
-        $stmt->execute([$reference]);
-
-        echo json_encode([
-            'status' => 'success',
-            'reference' => $reference,
-            'rows_updated' => $stmt->rowCount()
-        ]);
-    } catch (PDOException $e) {
-        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+        exit;
     }
-} else {
-    echo json_encode(['status' => 'error', 'message' => 'No matching reference code found in SMS']);
 }
+
+echo json_encode(["status" => "ignored", "message" => "No valid reference code found in SMS"]);
+?>
