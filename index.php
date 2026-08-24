@@ -3,18 +3,14 @@ header("Content-Type: application/json");
 header("Access-Control-Allow-Origin: *");
 
 $rawInput = file_get_contents('php://input');
-error_log("--> RAW INPUT RECEIVED: " . $rawInput);
+error_log("--> RAW INPUT: " . $rawInput);
 
 $data = json_decode($rawInput, true);
 $message = $data['message'] ?? $data['sms_body'] ?? $data['text'] ?? $_POST['message'] ?? $_POST['text'] ?? $rawInput ?? '';
 
-error_log("--> PARSED MESSAGE: " . $message);
-
 if (preg_match('/REF-\d+/i', $message, $matches)) {
     $reference = strtoupper($matches[0]);
-    error_log("--> EXTRACTED REFERENCE: " . $reference);
 
-    // EXACT AIVEN HOSTNAME WITH .h. INCLUDED
     $host = 'mysql-ddc4692-rclever761-3f21.h.aivencloud.com';
     $port = '23985';
     $db   = 'defaultdb';
@@ -32,6 +28,7 @@ if (preg_match('/REF-\d+/i', $message, $matches)) {
         $pdo->exec("CREATE TABLE IF NOT EXISTS deposits (
             id INT AUTO_INCREMENT PRIMARY KEY,
             reference VARCHAR(255) NOT NULL UNIQUE,
+            phone VARCHAR(50) NULL,
             status VARCHAR(50) DEFAULT 'PENDING',
             updated_at DATETIME NULL
         )");
@@ -47,19 +44,14 @@ if (preg_match('/REF-\d+/i', $message, $matches)) {
         $stmt = $pdo->prepare("UPDATE deposits SET status = 'SUCCESS', updated_at = NOW() WHERE reference = ?");
         $stmt->execute([$reference]);
 
-        error_log("--> SUCCESS: Database updated successfully for " . $reference);
-
         echo json_encode([
             'status' => 'success',
-            'message' => 'Deposit status successfully updated to SUCCESS',
             'reference' => $reference,
             'rows_updated' => $stmt->rowCount()
         ]);
     } catch (PDOException $e) {
-        error_log("--> DATABASE ERROR: " . $e->getMessage());
         echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
     }
 } else {
-    error_log("--> MATCH FAILED: No REF-xxxx code found in payload.");
     echo json_encode(['status' => 'error', 'message' => 'No matching reference code found in SMS']);
 }
