@@ -2,7 +2,7 @@
 header("Content-Type: application/json");
 header("Access-Control-Allow-Origin: *");
 
-// 1. Read incoming payload from phone
+// 1. Read incoming body payload sent by SMS Forwarder
 $rawInput = file_get_contents('php://input');
 $data = json_decode($rawInput, true);
 
@@ -12,26 +12,35 @@ $message = $data['message'] ?? $_POST['message'] ?? '';
 if (preg_match('/REF-\d+/i', $message, $matches)) {
     $reference = strtoupper($matches[0]);
 
-    // Replace with your site's URL on InfinityFree where db-update.php is uploaded
-    $infinityFreeUrl = 'http://my-smsgateway.free.nf/db-update.php';
+    // Your exact Aiven Database Credentials
+    $host = 'mysql-ddc4692-rclever761-3f21.aivencloud.com';
+    $port = '25985';
+    $db   = 'defaultdb';
+    $user = 'avnadmin';
+    $pass = 'AVNS_Q1eviPJ1owGEHyV5PCy';
 
-    // Forward reference code to InfinityFree over HTTP
-    $ch = curl_init($infinityFreeUrl);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query(['reference' => $reference]));
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-    
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+    try {
+        $dsn = "mysql:host=$host;port=$port;dbname=$db;charset=utf8mb4";
+        $pdo = new PDO($dsn, $user, $pass, [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::MYSQL_ATTR_SSL_CA => true,
+            PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => false
+        ]);
 
-    echo json_encode([
-        'status' => 'forwarded',
-        'reference' => $reference,
-        'http_code' => $httpCode,
-        'bridge_response' => $response
-    ]);
+        $stmt = $pdo->prepare("UPDATE deposits SET status = 'SUCCESS', updated_at = NOW() WHERE reference = ? AND status = 'PENDING'");
+        $stmt->execute([$reference]);
+
+        echo json_encode([
+            'status' => 'success',
+            'reference' => $reference,
+            'rows_updated' => $stmt->rowCount()
+        ]);
+    } catch (PDOException $e) {
+        echo json_encode([
+            'status' => 'error',
+            'message' => $e->getMessage()
+        ]);
+    }
 } else {
     echo json_encode([
         'status' => 'error',
