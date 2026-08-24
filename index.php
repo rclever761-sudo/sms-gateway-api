@@ -1,14 +1,17 @@
 <?php
-// Clear any existing buffers
+// Prevent PHP warnings/notices from corrupting JSON output
+error_reporting(0);
+ini_set('display_errors', 0);
+
+// Flush output buffer
 if (ob_get_level()) ob_end_clean();
 
-// Force CORS Headers on EVERY response
+// Force CORS Headers
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
 header("Content-Type: application/json; charset=UTF-8");
 
-// Handle preflight OPTIONS request instantly
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit(0);
@@ -17,11 +20,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 try {
     require_once 'db.php';
 
-    // Parse incoming JSON body if present
+    // Parse incoming JSON body or POST form data
     $inputJSON = json_decode(file_get_contents('php://input'), true);
-
-    // Retrieve reference code from GET, POST, or JSON body
-    $ref = $_GET['ref'] ?? $_POST['ref'] ?? $inputJSON['ref'] ?? null;
+    $ref = $_POST['ref'] ?? $_GET['ref'] ?? $inputJSON['ref'] ?? null;
 
     if ($ref) {
         $ref = strtoupper(trim($ref));
@@ -46,8 +47,8 @@ try {
         exit(0);
     }
 
-    // Handle SMS Gateway Webhook
-    $sms_text = $inputJSON['message'] ?? $_POST['message'] ?? '';
+    // SMS Gateway Webhook handling
+    $sms_text = $_POST['message'] ?? $inputJSON['message'] ?? '';
 
     if (!empty($sms_text)) {
         if (preg_match('/Reason:\s*(REF-\d+)/i', $sms_text, $matches)) {
@@ -69,8 +70,12 @@ try {
     exit(0);
 
 } catch (Exception $e) {
-    http_response_code(200); // Return 200 so browser reads JSON error instead of throwing network error
-    echo json_encode(["status" => "error", "message" => $e->getMessage()]);
+    // Return 200 with the exact error message so JS can display it
+    echo json_encode([
+        "status" => "error", 
+        "deposit_status" => "ERROR",
+        "message" => $e->getMessage()
+    ]);
     exit(0);
 }
 ?>
