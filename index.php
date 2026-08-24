@@ -35,12 +35,14 @@ try {
             exit();
         }
 
+        // Standardize input formats: REF-19078 -> REF19078 & REF-19078
         $rawRef = strtoupper($ref_code);
-        $ref_with_hyphen = (strpos($rawRef, '-') !== false) ? $rawRef : str_replace('REF', 'REF-', $rawRef);
-        $ref_no_hyphen = str_replace('-', '', $rawRef);
+        $cleanRef = str_replace('-', '', $rawRef); // e.g. REF19078
+        $hyphenRef = (strpos($rawRef, '-') !== false) ? $rawRef : str_replace('REF', 'REF-', $rawRef); // e.g. REF-19078
 
-        $stmt = $pdo->prepare("SELECT * FROM transactions WHERE ref_code = ? OR ref_code = ?");
-        $stmt->execute([$ref_with_hyphen, $ref_no_hyphen]);
+        // Query database for both hyphenated and non-hyphenated versions
+        $stmt = $pdo->prepare("SELECT * FROM transactions WHERE ref_code = ? OR ref_code = ? OR REPLACE(ref_code, '-', '') = ?");
+        $stmt->execute([$rawRef, $hyphenRef, $cleanRef]);
         $txn = $stmt->fetch();
 
         if ($txn) {
