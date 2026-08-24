@@ -2,16 +2,18 @@
 header("Content-Type: application/json");
 header("Access-Control-Allow-Origin: *");
 
-// Log raw incoming payload to Render logs
+// Read raw body input and POST fields
 $rawInput = file_get_contents('php://input');
-error_log("Incoming SMS Payload: " . $rawInput);
-
 $data = json_decode($rawInput, true);
-$message = $data['message'] ?? $_POST['message'] ?? '';
 
+// Extract message text regardless of how the app formats the request
+$message = $data['message'] ?? $data['sms_body'] ?? $data['text'] ?? $_POST['message'] ?? $_POST['text'] ?? $rawInput ?? '';
+
+error_log("Incoming SMS: " . $message);
+
+// Regex search for reference codes like REF-12345
 if (preg_match('/REF-\d+/i', $message, $matches)) {
     $reference = strtoupper($matches[0]);
-    error_log("Extracted Reference: " . $reference);
 
     $host = 'mysql-ddc4692-rclever761-3f21.aivencloud.com';
     $port = '25985';
@@ -27,7 +29,7 @@ if (preg_match('/REF-\d+/i', $message, $matches)) {
             PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => false
         ]);
 
-        // Auto-create table
+        // Auto-create table on Aiven if missing
         $pdo->exec("CREATE TABLE IF NOT EXISTS deposits (
             id INT AUTO_INCREMENT PRIMARY KEY,
             reference VARCHAR(255) NOT NULL,
@@ -35,7 +37,7 @@ if (preg_match('/REF-\d+/i', $message, $matches)) {
             updated_at DATETIME NULL
         )");
 
-        // Ensure record exists before updating
+        // Insert reference if not exists
         $checkStmt = $pdo->prepare("SELECT id FROM deposits WHERE reference = ?");
         $checkStmt->execute([$reference]);
         if ($checkStmt->rowCount() === 0) {
@@ -43,11 +45,9 @@ if (preg_match('/REF-\d+/i', $message, $matches)) {
             $insertStmt->execute([$reference]);
         }
 
-        // Update deposit status
+        // Update status to SUCCESS
         $stmt = $pdo->prepare("UPDATE deposits SET status = 'SUCCESS', updated_at = NOW() WHERE reference = ?");
         $stmt->execute([$reference]);
-
-        error_log("SUCCESS: Updated database for reference " . $reference);
 
         echo json_encode([
             'status' => 'success',
@@ -55,16 +55,9 @@ if (preg_match('/REF-\d+/i', $message, $matches)) {
             'rows_updated' => $stmt->rowCount()
         ]);
     } catch (PDOException $e) {
-        error_log("DATABASE ERROR: " . $e->getMessage());
-        echo json_encode([
-            'status' => 'error',
-            'message' => $e->getMessage()
-        ]);
+        error_log("DB Error: " . $e->getMessage());
+        echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
     }
 } else {
-    error_log("NO MATCH: Message did not contain REF-xxxx");
-    echo json_encode([
-        'status' => 'error',
-        'message' => 'No matching reference code found in SMS'
-    ]);
+    echo json_encode(['status' => 'error', 'message' => 'No matching reference found']);
 }
