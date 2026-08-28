@@ -1,4 +1,3 @@
-
 <?php
 // 1. CORS & Pre-flight Request Handling
 header("Access-Control-Allow-Origin: *");
@@ -12,10 +11,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 // 2. Database Connection (InfinityFree Config)
-$db_host = "sql208.infinityfree.com"; // Replace with your MySQL Hostname
-$db_user = "if0_37123456";            // Replace with your MySQL Username
-$db_pass = "Yourv6Password";         // Replace with your MySQL Password
-$db_name = "if0_37123456_db";         // Replace with your Database Name
+$db_host = "sql111.infinityfree.com";
+$db_user = "if0_42731565";
+$db_pass = "AogWR4L3pnVR";
+$db_name = "if0_42731565_Pay";
 
 $conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
 
@@ -26,7 +25,7 @@ if ($conn->connect_error) {
 }
 
 // 3. Process Incoming Request
-$inputData = json_decode(file_get_contents("php_input"), true);
+$inputData = json_decode(file_get_contents("php://input"), true);
 if (!$inputData) {
     $inputData = $_POST;
 }
@@ -46,7 +45,7 @@ switch ($action) {
         break;
     default:
         // Handle direct payload without explicit action parameter
-        if (isset($inputData['phone']) && isset($inputData['password']) && isset($inputData['country_code'])) {
+        if (isset($inputData['phone']) && isset($inputData['password'])) {
             handleRegistration($conn, $inputData);
         } else {
             http_response_code(400);
